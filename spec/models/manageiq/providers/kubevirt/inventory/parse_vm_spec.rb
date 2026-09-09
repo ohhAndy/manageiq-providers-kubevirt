@@ -22,8 +22,10 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
       network_collection = double("network_collection")
       network1 = FactoryBot.create(:network, :hardware => hardware, :ipaddress => "10.128.0.18")
       network2 = FactoryBot.create(:network, :hardware => hardware, :ipaddress => "192.168.1.5")
+      [network1, network2].each do |n|
+        allow(n).to receive(:assign_attributes) { |attrs| n.update_columns(attrs) }
+      end
       allow(network_collection).to receive(:find_or_build_by).and_return(network1, network2)
-      allow(hardware).to receive(:networks).and_return([network1, network2])
 
       vm_collection = double("vm_collection")
       vm = FactoryBot.create(:vm_kubevirt, :hardware => hardware)
@@ -53,14 +55,14 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
 
       expect(vm.hardware.networks.count).to eq(2)
 
-      net1 = vm.hardware.networks.find { |n| n.ipaddress == "10.128.0.18" }
-      expect(net1).to_not be_nil
-      expect(net1.hostname).to eq("vm-17-235.eng.lab.tlv.redhat.com")
+      network1.reload
+      expect(network1.hostname).to eq("vm-17-235.eng.lab.tlv.redhat.com")
+      expect(network1.subnet_mask).to be_nil
 
-      # Second interface has a CIDR suffix — verify it is stripped
-      net2 = vm.hardware.networks.find { |n| n.ipaddress == "192.168.1.5" }
-      expect(net2).to_not be_nil
-      expect(net2.hostname).to eq("vm-17-235.eng.lab.tlv.redhat.com")
+      # Second interface has a CIDR suffix — verify it is stripped and subnet_mask derived
+      network2.reload
+      expect(network2.hostname).to eq("vm-17-235.eng.lab.tlv.redhat.com")
+      expect(network2.subnet_mask).to eq("255.255.255.0")
     end
   end
 end

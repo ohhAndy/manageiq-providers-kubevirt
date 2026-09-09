@@ -225,15 +225,18 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     return nil if interfaces.nil? || interfaces.empty?
 
     interfaces.each do |iface|
-      ip_address = iface[:ipAddress]&.split('/')&.first
+      ip_address, prefix_length = iface[:ipAddress]&.split('/')
       next unless ip_address
+
+      subnet_mask = IPAddr.new("255.255.255.255").mask(prefix_length).to_s if prefix_length
 
       network_collection.find_or_build_by(
         :hardware  => hw_object,
         :ipaddress => ip_address,
       ).assign_attributes(
-        :ipaddress => ip_address,
-        :hostname  => node_name
+        :ipaddress   => ip_address,
+        :hostname    => node_name,
+        :subnet_mask => subnet_mask
       )
     end
   end
