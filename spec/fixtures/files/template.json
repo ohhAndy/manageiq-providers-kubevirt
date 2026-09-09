@@ -26,6 +26,22 @@
         "name": "${NAME}"
       },
       "spec": {
+        "dataVolumeTemplates": [
+          {
+            "metadata": {
+              "name": "${NAME}"
+            },
+            "spec": {
+              "storage": {
+                "resources": {
+                  "requests": {
+                    "storage": "30Gi"
+                  }
+                }
+              }
+            }
+          }
+        ],
         "template": {
           "spec": {
             "domain": {
@@ -35,27 +51,38 @@
               "devices": {
                 "disks": [
                   {
+                    "bootOrder": 1,
                     "disk": {
-                      "dev": "vda"
+                      "bus": "virtio"
                     },
-                    "name": "disk0-pvc"
+                    "name": "rootdisk"
+                  },
+                  {
+                    "disk": {
+                      "bus": "virtio"
+                    },
+                    "name": "cloudinitdisk"
                   }
                 ]
               },
               "machine": {
                 "type": "q35"
               },
-              "resources": {
-                "requests": {
-                  "memory": "4096Mi"
-                }
+              "memory": {
+                "guest": "4096Mi"
               }
             },
             "volumes": [
               {
-                "name": "disk0-pvc",
-                "persistentVolumeClaim": {
-                  "claimName": "linux-vm-pvc-test"
+                "name": "rootdisk",
+                "dataVolume": {
+                  "name": "${NAME}"
+                }
+              },
+              {
+                "name": "cloudinitdisk",
+                "cloudInitNoCloud": {
+                  "userData": "#cloud-config\npassword: atomic\n"
                 }
               }
             ]

@@ -10,9 +10,14 @@ class ManageIQ::Providers::Kubevirt::Inventory::Collector::FullRefresh < ManageI
     super
 
     @nodes          = @manager.kubeclient.get_nodes
+    @pvcs_by_name   = @manager.kubeclient.get_persistent_volume_claims.each_with_object({}) { |p, h| h[[p.metadata.name, p.metadata.namespace]] = p }
     @instance_types = @manager.kubeclient("instancetype.kubevirt.io/v1beta1").get_virtual_machine_cluster_instancetypes
     @vms            = @manager.kubeclient("kubevirt.io/v1").get_virtual_machines
     @vm_instances   = @manager.kubeclient("kubevirt.io/v1").get_virtual_machine_instances
     @templates      = @manager.kubeclient("template.openshift.io/v1").get_templates
+  end
+
+  def pvc(name, namespace)
+    @pvcs_by_name[[name, namespace]]
   end
 end

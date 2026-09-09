@@ -137,6 +137,10 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
 
     vm_object = process_domain(object.metadata.namespace, domain.resources&.requests&.memory, domain.cpu, object.metadata.uid, object.metadata.name)
 
+    # Add the inventory objects for the disks:
+    hw_object = hw_collection.find_or_build(vm_object)
+    process_disks(hw_object, domain, object.metadata.namespace, spec.volumes)
+
     # Add the inventory object for the OperatingSystem
     process_os(vm_object, object.metadata.labels, object.metadata.annotations)
 
@@ -166,6 +170,10 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
 
     # Process the domain:
     vm_object = process_domain(object.metadata.namespace, object.spec.domain.memory&.guest, object.spec.domain.cpu, uid, name)
+
+    # Add the inventory objects for the disks:
+    hw_object = hw_collection.find_or_build(vm_object)
+    process_disks(hw_object, object.spec.domain, object.metadata.namespace, object.spec.volumes, object.status.volumeStatus)
 
     process_status(vm_object, object.status.interfaces, object.status.nodeName)
 
@@ -264,7 +272,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     template_object.location = object.metadata.namespace
 
     # Add the inventory object for the hardware:
-    process_hardware(template_object, object.parameters, object.metadata.labels, vm.dig(:spec, :template, :spec, :domain))
+    process_hardware(template_object, object.parameters, object.metadata.labels, vm.dig(:spec, :template, :spec, :domain), vm.dig(:spec, :template, :spec, :volumes), vm.dig(:spec, :dataVolumeTemplates))
 
     # Add the inventory object for the OperatingSystem
     process_os(template_object, object.metadata.labels, object.metadata.annotations)
@@ -280,7 +288,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     vm
   end
 
-  def process_hardware(template_object, params, labels, domain)
+  def process_hardware(template_object, params, labels, domain, volumes = nil, data_volume_templates = nil)
     hw_object = hw_collection.find_or_build(template_object)
     memory = default_value(params, 'MEMORY') || domain.dig(:memory, :guest)
     hw_object.memory_mb = parse_quantity(memory) / 1.megabytes.to_f if memory
@@ -290,7 +298,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     hw_object.guest_os = labels&.dig(OS_LABEL_SYMBOL)
 
     # Add the inventory objects for the disk:
-    process_disks(hw_object, domain)
+    process_disks(hw_object, domain, nil, volumes, nil, data_volume_templates)
   end
 
   def default_value(params, name)
@@ -298,18 +306,87 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     name_param[:value] if name_param
   end
 
-  def process_disks(hw_object, domain)
+  def process_disks(hw_object, domain, namespace, volumes = nil, volume_status = nil, data_volume_templates = nil)
+    return if domain.dig(:devices, :disks).nil?
+
+    # Build lookup indexes from the volumes, volumeStatus, and dataVolumeTemplates lists, keyed by name
+    volumes_by_name               = (volumes || []).index_by { |v| v[:name] }
+    volume_status_by_name         = (volume_status || []).index_by { |v| v[:name] }
+    data_volume_templates_by_name = (data_volume_templates || []).index_by { |d| d.dig(:metadata, :name) }
+
     domain.dig(:devices, :disks).each do |disk|
+      disk_name   = disk[:name]
+      volume      = volumes_by_name[disk_name]
+      vol_status  = volume_status_by_name[disk_name]
+
+      # Resolve the PVC claim name from the matching volume entry
+      data_volume_name = volume&.dig(:dataVolume, :name)
+      pvc_claim = volume&.dig(:persistentVolumeClaim, :claimName) ||
+                  data_volume_name ||
+                  vol_status&.dig(:persistentVolumeClaimInfo, :claimName)
+
+      # Look up PVC for use as fallback when vol_status is absent (stopped VM)
+      pvc = namespace && pvc_claim ? collector.pvc(pvc_claim, namespace) : nil
+
+      # Look up dataVolumeTemplate for size when no PVC exists (e.g. templates with ${NAME} placeholders)
+      dvt = data_volume_templates_by_name[data_volume_name]
+
+      # Resolve disk size, type, and thinness — prefer volumeStatus (running VM), fall back to PVC, then dataVolumeTemplate
+      size = parse_quantity(vol_status&.dig(:persistentVolumeClaimInfo, :capacity, :storage)) ||
+             parse_quantity(pvc&.dig(:spec, :resources, :requests, :storage)) ||
+             parse_quantity(dvt&.dig(:spec, :storage, :resources, :requests, :storage))
+      size_on_disk = vol_status&.dig(:size) ||
+                     parse_quantity(pvc&.dig(:status, :capacity, :storage))
+      # Thickness is determined by preallocation annotations on the PVC, or the preallocated flag
+      # from volumeStatus (set by CDI when cdi.kubevirt.io/storage.preallocation is true).
+      # Absence of any preallocation indicator means the disk is thin (sparse).
+      thick = vol_status&.dig(:persistentVolumeClaimInfo, :preallocated) == true || pvc_preallocation_annotations?(pvc)
+
       disk_object = disk_collection.find_or_build_by(
         :hardware    => hw_object,
-        :device_name => disk[:name]
+        :device_name => disk_name
       )
-      disk_object.device_name = disk[:name]
-      disk_object.location = disk[:volumeName]
-      disk_object.device_type = 'disk'
-      disk_object.present = true
-      disk_object.mode = 'persistent'
-      # TODO: what do we need more? We are missing reference to PV or PVC
+      # Treat unsubstituted template placeholders (e.g. "${NAME}") as absent
+      resolved_claim = pvc_claim&.match?(/\$\{.+\}/) ? nil : pvc_claim
+
+      disk_object.device_name     = disk_name
+      disk_object.filename        = resolved_claim
+      disk_object.location        = resolved_claim || vol_status&.dig(:target)
+      disk_object.device_type     = detect_device_type(disk)
+      disk_object.present         = true
+      disk_object.mode            = 'persistent'
+      disk_object.controller_type = disk.dig(disk_object.device_type.to_sym, :bus)
+      disk_object.bootable        = disk[:bootOrder] == 1
+      disk_object.size            = size
+      disk_object.size_on_disk    = size_on_disk
+      disk_object.disk_type       = thick ? "thick" : "thin"
+      disk_object.thin            = !thick
+      disk_object.ems_ref         = disk_name
+    end
+  end
+
+  def detect_device_type(disk)
+    if disk[:cdrom].present?
+      'cdrom'
+    elsif disk[:floppy].present?
+      'floppy'
+    else
+      'disk'
+    end
+  end
+
+  PREALLOCATION_ANNOTATIONS = %w[
+    cdi.kubevirt.io/storage.preallocation
+    storage.preallocation
+    storage.thick-provisioned
+  ].freeze
+
+  def pvc_preallocation_annotations?(pvc)
+    return false if pvc.nil?
+
+    annotations = pvc&.dig(:metadata, :annotations) || {}
+    annotations.any? do |key, value|
+      PREALLOCATION_ANNOTATIONS.any? { |suffix| key.to_s.end_with?(suffix) } && value.to_s == 'true'
     end
   end
 
