@@ -59,7 +59,12 @@
     "status": {
         "interfaces": [
             {
-                "ipAddress": "10.128.0.18"
+                "ipAddress": "10.128.0.18",
+                "name": "default"
+            },
+            {
+                "ipAddress": "192.168.1.5/24",
+                "name": "secondary"
             }
         ],
         "nodeName": "vm-17-235.eng.lab.tlv.redhat.com",

@@ -167,7 +167,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     # Process the domain:
     vm_object = process_domain(object.metadata.namespace, object.spec.domain.memory&.guest, object.spec.domain.cpu, uid, name)
 
-    process_status(vm_object, object.status.interfaces&.first&.ipAddress, object.status.nodeName)
+    process_status(vm_object, object.status.interfaces, object.status.nodeName)
 
     vm_object.host = host_collection.lazy_find(object.status.nodeName, :ref => :by_name)
 
@@ -214,23 +214,31 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     end
   end
 
-  def process_status(vm_object, ip_address, node_name)
+  def process_status(vm_object, interfaces, node_name)
     hw_object = hw_collection.find_or_build(vm_object)
 
     # Create the inventory object for vm network device
-    hardware_networks(hw_object, ip_address, node_name)
+    hardware_networks(hw_object, interfaces, node_name)
   end
 
-  def hardware_networks(hw_object, ip_address, node_name)
-    return nil unless ip_address
+  def hardware_networks(hw_object, interfaces, node_name)
+    return nil if interfaces.nil? || interfaces.empty?
 
-    network_collection.find_or_build_by(
-      :hardware  => hw_object,
-      :ipaddress => ip_address,
-    ).assign_attributes(
-      :ipaddress => ip_address,
-      :hostname  => node_name
-    )
+    interfaces.each do |iface|
+      ip_address, prefix_length = iface[:ipAddress]&.split('/')
+      next unless ip_address
+
+      subnet_mask = IPAddr.new("255.255.255.255").mask(prefix_length).to_s if prefix_length
+
+      network_collection.find_or_build_by(
+        :hardware  => hw_object,
+        :ipaddress => ip_address,
+      ).assign_attributes(
+        :ipaddress   => ip_address,
+        :hostname    => node_name,
+        :subnet_mask => subnet_mask
+      )
+    end
   end
 
   def process_templates(objects)
