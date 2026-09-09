@@ -15,6 +15,12 @@ class ManageIQ::Providers::Kubevirt::Inventory::Collector::PartialRefresh < Mana
     @instance_types = notices_of_kind(notices, 'VirtualMachineClusterInstanceType')
   end
 
+  def pvc(name, namespace)
+    @manager.kubeclient.get_persistent_volume_claim(name, namespace)
+  rescue Kubeclient::ResourceNotFoundError
+    nil
+  end
+
   private
 
   #

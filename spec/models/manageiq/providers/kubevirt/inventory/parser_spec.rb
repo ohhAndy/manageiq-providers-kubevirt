@@ -9,7 +9,8 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
     it 'parses a template' do
       disk_collection = double("disk_collection")
       disk = FactoryBot.create(:disk)
-      allow(disk_collection).to receive(:find_or_build_by).and_return(disk)
+      cloudinitdisk = FactoryBot.create(:disk)
+      allow(disk_collection).to receive(:find_or_build_by).and_return(disk, cloudinitdisk)
 
       hw_collection = double("hw_collection")
       hardware = FactoryBot.create(:hardware)
@@ -23,11 +24,15 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
       temp = FactoryBot.create(:template_kubevirt, :hardware => hardware, :operating_system => os)
       allow(template_collection).to receive(:find_or_build).and_return(temp)
 
+      collector = double("collector")
+      allow(collector).to receive(:pvcs).and_return([])
+
       parser = described_class.new
       parser.instance_variable_set(:@template_collection, template_collection)
       parser.instance_variable_set(:@hw_collection, hw_collection)
       parser.instance_variable_set(:@vm_os_collection, os_collection)
       parser.instance_variable_set(:@disk_collection, disk_collection)
+      parser.instance_variable_set(:@collector, collector)
 
       template = unprocessed_object("template.json")
 
@@ -57,7 +62,7 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
       )
 
       expect(disk).to have_attributes(
-        :device_name => "disk0-pvc",
+        :device_name => "rootdisk",
         :device_type => "disk",
         :present     => true,
         :mode        => "persistent"
@@ -82,11 +87,15 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
       temp = FactoryBot.create(:template_kubevirt, :hardware => hardware, :operating_system => os)
       allow(template_collection).to receive(:find_or_build).and_return(temp)
 
+      collector = double("collector")
+      allow(collector).to receive(:pvcs).and_return([])
+
       parser = described_class.new
       parser.instance_variable_set(:@template_collection, template_collection)
       parser.instance_variable_set(:@hw_collection, hw_collection)
       parser.instance_variable_set(:@vm_os_collection, os_collection)
       parser.instance_variable_set(:@disk_collection, disk_collection)
+      parser.instance_variable_set(:@collector, collector)
 
       template_registry = unprocessed_object("template_registry.json")
 
@@ -124,11 +133,15 @@ describe ManageIQ::Providers::Kubevirt::Inventory::Parser do
       temp = FactoryBot.create(:template_kubevirt, :hardware => hardware, :operating_system => os)
       allow(template_collection).to receive(:find_or_build).and_return(temp)
 
+      collector = double("collector")
+      allow(collector).to receive(:pvcs).and_return([])
+
       parser = described_class.new
       parser.instance_variable_set(:@template_collection, template_collection)
       parser.instance_variable_set(:@hw_collection, hw_collection)
       parser.instance_variable_set(:@vm_os_collection, os_collection)
       parser.instance_variable_set(:@disk_collection, disk_collection)
+      parser.instance_variable_set(:@collector, collector)
 
       template = unprocessed_object("template-without-parameters.yml")
 
