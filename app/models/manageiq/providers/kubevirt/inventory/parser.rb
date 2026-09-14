@@ -8,18 +8,12 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
   protected
 
   #
-  # The identifier of the built-in cluster:
-  #
-  CLUSTER_ID = '0'.freeze
-
-  #
   # The identifier of the built-in storage:
   #
   STORAGE_ID = '0'.freeze
 
   OS_LABEL_SYMBOL = :'kubevirt.io/os'
 
-  attr_reader :cluster_collection
   attr_reader :host_collection
   attr_reader :host_storage_collection
   attr_reader :host_hw_collection
@@ -32,13 +26,6 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
   attr_reader :vm_os_collection
   attr_reader :disk_collection
   attr_reader :flavor_collection
-
-  def add_builtin_clusters
-    cluster_object = cluster_collection.find_or_build(CLUSTER_ID)
-    cluster_object.ems_ref = CLUSTER_ID
-    cluster_object.name = collector.manager.name
-    cluster_object.uid_ems = CLUSTER_ID
-  end
 
   def add_builtin_storages
     storage_object = storage_collection.find_or_build(STORAGE_ID)
@@ -68,7 +55,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     # Add the inventory object for the host:
     host_object = host_collection.find_or_build(uid)
     host_object.connection_state = 'connected'
-    host_object.ems_cluster = cluster_collection.lazy_find(CLUSTER_ID)
+    host_object.ems_cluster = nil
     host_object.ems_ref = uid
     host_object.hostname = hostname
     host_object.ipaddress = ipaddress
@@ -190,6 +177,7 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser < ManageIQ::Providers::In
     vm_object.connection_state = 'connected'
     vm_object.ems_ref = uid
     vm_object.name = name
+    vm_object.ems_cluster = nil
     vm_object.storage = storage_object
     vm_object.storages = [storage_object]
     vm_object.template = false

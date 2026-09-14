@@ -11,7 +11,6 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser::FullRefresh < ManageIQ::
     instance_types = collector.instance_types
 
     # Create the collections:
-    @cluster_collection = persister.cluster_collection
     @host_collection = persister.host_collection
     @host_storage_collection = persister.host_storage_collection
     @host_hw_collection = persister.host_hw_collection
@@ -26,7 +25,6 @@ class ManageIQ::Providers::Kubevirt::Inventory::Parser::FullRefresh < ManageIQ::
     @flavor_collection = persister.flavor_collection
 
     # Add the built-in objects:
-    add_builtin_clusters
     add_builtin_storages
 
     # Process the real objects:

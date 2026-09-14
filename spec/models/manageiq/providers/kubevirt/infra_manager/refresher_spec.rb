@@ -31,7 +31,6 @@ describe ManageIQ::Providers::Kubevirt::InfraManager::Refresher do
         assert_specific_flavor
         assert_specific_vm
         assert_specific_host
-        assert_specific_cluster
         assert_specific_storage
       end
     end
@@ -40,7 +39,7 @@ describe ManageIQ::Providers::Kubevirt::InfraManager::Refresher do
       expect(ems.vms.count).to eq(2)
       expect(ems.hosts.count).to eq(1)
       expect(ems.flavors.count).to eq(44)
-      expect(ems.clusters.count).to eq(1)
+      expect(ems.clusters.count).to eq(0)
       expect(ems.storages.count).to eq(1)
     end
 
@@ -119,21 +118,11 @@ describe ManageIQ::Providers::Kubevirt::InfraManager::Refresher do
         :vmm_product      => "KubeVirt",
         :vmm_vendor       => "kubevirt",
         :vmm_version      => "0.1.0",
-        :ems_cluster      => ems.ems_clusters.find_by(:ems_ref => "0")
+        :ems_cluster      => nil
       )
       expect(host.hardware).to have_attributes(
         :cpu_total_cores => 12,
         :memory_mb       => 19_997
-      )
-    end
-
-    def assert_specific_cluster
-      cluster = ems.ems_clusters.find_by(:ems_ref => "0")
-      expect(cluster).to have_attributes(
-        :ems_ref => "0",
-        :name    => "Kubevirt Virtualization Manager",
-        :uid_ems => "0",
-        :type    => "ManageIQ::Providers::Kubevirt::InfraManager::Cluster"
       )
     end
 
