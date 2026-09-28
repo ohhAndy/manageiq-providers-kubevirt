@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+
+require 'bundler/inline'
+
+gemfile(false) do
+  source 'https://rubygems.org'
+  gem 'kubeclient',            '~> 4.7'
+  gem 'recursive-open-struct', '~> 1.1'
+  gem 'manageiq-messaging',    '~> 2.1'
+  gem 'manageiq-loggers',      '~> 2.0'
+  gem 'sd_notify', '~> 0.1.0' if ENV['APPLIANCE']
+
+  gem 'manageiq-providers-kubernetes',
+      :git     => 'https://github.com/ManageIQ/manageiq-providers-kubernetes',
+      :branch  => 'master',
+      :require => false
+end
+
+require 'json'
+require 'uri'
+
+k8s_root = Gem::Specification.find_by_name('manageiq-providers-kubernetes').gem_dir
+require File.join(k8s_root, 'workers/event_catcher/event_parser')
+require File.join(k8s_root, 'lib/manageiq/providers/kubernetes/workers/event_catcher_base')
+
+require_relative 'event_parser'
+
+# Point the constant used by KubernetesEventCatcherBase#watch_events to our subclass
+# so VM/VMI-specific fields are extracted and the KUBEVIRT source tag is applied.
+EventParser = KubevirtEventParser
+
+require_relative 'event_catcher'
+
+def build_logger
+  if ENV['CONTAINER']
+    ManageIQ::Loggers::Container.new
+  elsif ENV['APPLIANCE']
+    ManageIQ::Loggers::Journald.new
+  else
+    ManageIQ::Loggers::Base.new($stdout)
+  end
+end
+
+def parse_args
+  JSON.parse($stdin.read)
+rescue JSON::ParserError
+  abort('Invalid argument format')
+end
+
+args           = parse_args
+ems            = args['ems'].first
+endpoint       = ems['endpoints'].find { |e| e['role'] == 'default' }
+authentication = ems['authentications'].find { |a| %w[bearer kubevirt default].include?(a['authtype']) }
+logger         = build_logger
+logger.progname = 'evm'
+
+KubevirtEventCatcher.new(ems, endpoint, authentication, args['settings'], args['messaging']&.transform_keys(&:to_sym) || {}, logger).run!
